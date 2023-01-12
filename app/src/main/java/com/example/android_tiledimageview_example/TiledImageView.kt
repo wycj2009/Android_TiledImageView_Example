@@ -50,26 +50,26 @@ class TiledImageView @JvmOverloads constructor(
         get() = imageMatrix.values()[Matrix.MTRANS_X]
         set(value) {
             imageMatrix.postTranslate(value - imageTranslationX, 0f)
-            tilingHelper.doTiling()
+            invalidate()
         }
     var imageTranslationY: Float
         get() = imageMatrix.values()[Matrix.MTRANS_Y]
         set(value) {
             imageMatrix.postTranslate(0f, value - imageTranslationY)
-            tilingHelper.doTiling()
+            invalidate()
         }
     var imageScale: Float
         get() = imageMatrix.values().let { v -> sqrt(v[Matrix.MSCALE_X] * v[Matrix.MSCALE_X] + v[Matrix.MSKEW_Y] * v[Matrix.MSKEW_Y]) }
         set(value) {
             val ds = value / imageScale
             imageMatrix.postScale(ds, ds, imageTranslationX, imageTranslationY)
-            tilingHelper.doTiling()
+            invalidate()
         }
     var imageRotation: Float
         get() = imageMatrix.values().let { v -> -(atan2(v[Matrix.MSKEW_X], v[Matrix.MSCALE_X]) * (180.0 / PI)).toFloat() }
         set(value) {
             imageMatrix.postRotate(value - imageRotation, imageTranslationX, imageTranslationY)
-            tilingHelper.doTiling()
+            invalidate()
         }
     var scaleType: ScaleType = ScaleType.FIT_INSIDE
     val imageMatrix: Matrix = Matrix()
@@ -194,7 +194,7 @@ class TiledImageView @JvmOverloads constructor(
                         touchAngle = newTouchAngle
                     }
 
-                    tilingHelper.doTiling()
+                    invalidate()
                 }
                 MotionEvent.ACTION_POINTER_UP -> {
                     touchCenter.set(getTouchCenter(event))
@@ -255,7 +255,7 @@ class TiledImageView @JvmOverloads constructor(
         private var tiles: Array<Array<Tile>>? = null
         private val previewTile: Tile?
             get() = tiles?.get(maxResolutionLv)?.get(0)
-        private val activeTiles: MutableList<Tile> = mutableListOf() // TODO : 다른 자료구조로 성능 개선
+        private val activeTiles: MutableSet<Tile> = mutableSetOf() // TODO : 다른 자료구조로 성능 개선
         private val tilePaint: Paint = Paint().apply { isAntiAlias = true }
         private val debuggingTilePaints: Array<Paint> = arrayOf(
             Paint().apply { isAntiAlias = true; colorFilter = PorterDuffColorFilter(Color.valueOf(1f, 0f, 0f, 0.5f).toArgb(), PorterDuff.Mode.LIGHTEN) },
@@ -267,7 +267,7 @@ class TiledImageView @JvmOverloads constructor(
             maxResolutionLv = 0
             tiles = null
             activeTiles.run {
-                forEach { it.freeBitmap(::onTileStateChanged) }
+                forEach { it.freeBitmap() }
                 clear()
             }
 
@@ -303,31 +303,34 @@ class TiledImageView @JvmOverloads constructor(
             }
 
             // Decode bitmap of preview tile
-            previewTile?.decodeBitmap(context, imageUri!!, ::onTileStateChanged)
+            previewTile?.decodeBitmap(this@TiledImageView, imageUri!!)
         }
 
-        fun doTiling() {
+        fun drawTiles(canvas: Canvas) {
             val viewportRect: RectF = getViewportRect()
 
             // activeTiles 중 tile.resolutionLv == curResolutionLv 인데 뷰포트와 겹치지 않는 타일들의 비트맵 해제
             activeTiles.filter { tile: Tile ->
                 tile.resolutionLv == curResolutionLv && !isTileOverlappedWithViewport(tile, viewportRect)
             }.forEach { tile: Tile ->
-                tile.freeBitmap(::onTileStateChanged)
+                tile.freeBitmap()
+                activeTiles.remove(tile)
             }
 
             // activeTiles 중 tile.resolutionLv != curResolutionLv 인데 디코딩 중인 타일들의 비트맵 해제
             activeTiles.filter { tile: Tile ->
                 tile.resolutionLv != curResolutionLv && tile.state == Tile.State.DECODING
             }.forEach { tile: Tile ->
-                tile.freeBitmap(::onTileStateChanged)
+                tile.freeBitmap()
+                activeTiles.remove(tile)
             }
 
             // 현재 뷰포트와 겹치고 Tile.State.FREE 상태인 타일들은 디코딩 시작
             getTilesOverlappedWithViewport(viewportRect).filter { tile: Tile ->
                 tile.state == Tile.State.FREE
             }.forEach { tile: Tile ->
-                tile.decodeBitmap(context, imageUri!!, ::onTileStateChanged)
+                tile.decodeBitmap(this@TiledImageView, imageUri!!)
+                activeTiles.add(tile)
             }
 
             // 뷰포트와 겹치는 모든 타일들이 디코딩 되었다면, activeTiles 중 뷰포트와 겹치지 않는 타일들의 비트맵 해제
@@ -338,45 +341,12 @@ class TiledImageView @JvmOverloads constructor(
                     activeTiles.filter {
                         !isTileOverlappedWithViewport(it, viewportRect)
                     }.forEach {
-                        it.freeBitmap(::onTileStateChanged)
+                        it.freeBitmap()
+                        activeTiles.remove(it)
                     }
                 }
             }
 
-            invalidate()
-        }
-
-        private fun onTileStateChanged(tile: Tile) {
-            when (tile.state) {
-                Tile.State.FREE -> {
-                    activeTiles.remove(tile)
-                }
-                Tile.State.DECODING -> {
-                    if (tile.resolutionLv != maxResolutionLv && !activeTiles.contains(tile)) {
-                        activeTiles.add(tile)
-                    }
-                }
-                Tile.State.DECODED -> {
-                    // 디코딩이 끝난 후, 뷰포트와 겹치는 모든 타일들이 디코딩 되었다면, activeTiles 중 뷰포트와 겹치지 않는 타일들의 비트맵 해제
-                    val viewportRect: RectF = getViewportRect()
-                    getTilesOverlappedWithViewport(viewportRect).all {
-                        it.state == Tile.State.DECODED
-                    }.let { allTilesOverappedWithViewportDecoded: Boolean ->
-                        if (allTilesOverappedWithViewportDecoded) {
-                            activeTiles.filter {
-                                !isTileOverlappedWithViewport(it, viewportRect)
-                            }.forEach {
-                                it.freeBitmap(::onTileStateChanged)
-                            }
-                        }
-                    }
-                }
-            }
-
-            invalidate()
-        }
-
-        fun drawTiles(canvas: Canvas) {
             // Draw preview tile
             previewTile?.let { tile: Tile ->
                 tile.drawBitmap(
@@ -480,26 +450,24 @@ class TiledImageView @JvmOverloads constructor(
         private var decodingJob: Job? = null
         private var bitmapRegionDecoder: BitmapRegionDecoder? = null
 
-        fun freeBitmap(onTileStateChanged: (tile: Tile) -> Unit) {
+        fun freeBitmap() {
             decodingJob?.cancel()
             decodingJob = null
             bitmap?.recycle()
             bitmap = null
 
             state = State.FREE
-            onTileStateChanged.invoke(this)
         }
 
-        fun decodeBitmap(context: Context, imageUri: Uri, onTileStateChanged: (tile: Tile) -> Unit) {
+        fun decodeBitmap(tiledImageView: TiledImageView, imageUri: Uri) {
             if (decodingJob?.isActive == true) return
 
             // TODO : test
             decodingJob = CoroutineScope(Dispatchers.Default).launch {
                 state = State.DECODING
-                onTileStateChanged.invoke(this@Tile)
 
                 if (bitmapRegionDecoder == null) {
-                    bitmapRegionDecoder = context.contentResolver.openInputStream(imageUri).use {
+                    bitmapRegionDecoder = tiledImageView.context.contentResolver.openInputStream(imageUri).use {
                         it?.let {
                             BitmapRegionDecoder.newInstance(it, false)
                         }
@@ -517,10 +485,10 @@ class TiledImageView @JvmOverloads constructor(
                     if (state == State.DECODING) {
                         bitmap = decodedBitmap
                         state = State.DECODED
-                        onTileStateChanged.invoke(this@Tile)
+                        tiledImageView.invalidate()
                     }
                 } ?: run {
-                    freeBitmap(onTileStateChanged)
+                    freeBitmap()
                 }
             }
         }
