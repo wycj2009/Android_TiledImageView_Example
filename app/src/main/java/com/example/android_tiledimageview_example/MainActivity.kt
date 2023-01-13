@@ -13,6 +13,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         binding.tiledImage.run {
+            touchBehavior.isRotatingEnabled = false
             setImage(R.drawable.mountain_11785x7741)
             debuggingCallback = { maxResolutionLv: Int, curResolutionLv: Int, activeTilesSize: Int, bitmapAllocatedMemorySizeMb: Long ->
                 binding.debuggingText.text = "maxResolutionLv=${maxResolutionLv}, curResolutionLv=${curResolutionLv}, activeTilesSize=${activeTilesSize}, bitmapAllocatedMemorySizeMb=${bitmapAllocatedMemorySizeMb}"
