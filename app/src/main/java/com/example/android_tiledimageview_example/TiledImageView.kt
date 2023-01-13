@@ -103,7 +103,6 @@ class TiledImageView @JvmOverloads constructor(
         imageMatrix.reset()
 
         doOnLayout { view: View ->
-            // TODO : ScaleType 추가
             val initImageScale = when (scaleType) {
                 ScaleType.FIT_INSIDE -> {
                     (view.width.toFloat() / sourceImageWidth).let {
@@ -136,7 +135,6 @@ class TiledImageView @JvmOverloads constructor(
         FIT_VERTICAL
     }
 
-    // TODO : 플링 모션 추가
     /** Default behavior of touches on [TiledImageView]. */
     private inner class DefaultTouchBehavior : TouchBehavior() {
         private val touchCenter: PointF = PointF()
@@ -242,7 +240,6 @@ class TiledImageView @JvmOverloads constructor(
         }
     }
 
-    // TODO : isFlingEnabled 추가
     /** The behavior of touches on [TiledImageView]. */
     abstract class TouchBehavior {
         var isPanningEnabled: Boolean = true
@@ -259,7 +256,7 @@ class TiledImageView @JvmOverloads constructor(
         private var tiles: Array<Array<Tile>>? = null
         private val previewTile: Tile?
             get() = tiles?.get(maxResolutionLv)?.get(0)
-        private val activeTiles: MutableSet<Tile> = mutableSetOf() // TODO : 다른 자료구조로 성능 개선
+        private val activeTiles: MutableSet<Tile> = mutableSetOf()
         private val tilePaint: Paint = Paint().apply { isAntiAlias = true }
         private val debuggingTilePaints: Array<Paint> = arrayOf(
             Paint().apply { isAntiAlias = true; colorFilter = PorterDuffColorFilter(Color.valueOf(1f, 0f, 0f, 0.5f).toArgb(), PorterDuff.Mode.LIGHTEN) },
@@ -396,7 +393,6 @@ class TiledImageView @JvmOverloads constructor(
             p3.rotate(axis, angle)
             p4.rotate(axis, angle)
 
-            // TODO : 개선
             val (dx: Float, dy: Float) = PointF(-(imageMatrixValues[Matrix.MTRANS_X] / imageScale), -(imageMatrixValues[Matrix.MTRANS_Y] / imageScale)).let {
                 it.rotate(PointF(0f, 0f), -imageRotation)
                 it.x to it.y
@@ -406,7 +402,6 @@ class TiledImageView @JvmOverloads constructor(
             p3.offset(dx, dy)
             p4.offset(dx, dy)
 
-            // TODO : 개선
             return RectF(
                 minOf(p1.x, p2.x, p3.x, p4.x),
                 minOf(p1.y, p2.y, p3.y, p4.y),
@@ -466,7 +461,6 @@ class TiledImageView @JvmOverloads constructor(
         fun decodeBitmap(tiledImageView: TiledImageView, imageUri: Uri) {
             if (decodingJob?.isActive == true) return
 
-            // TODO : test
             decodingJob = CoroutineScope(Dispatchers.Default).launch {
                 state = State.DECODING
 
