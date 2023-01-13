@@ -65,6 +65,8 @@ class TiledImageView @JvmOverloads constructor(
             imageMatrix.postScale(ds, ds, imageTranslationX, imageTranslationY)
             invalidate()
         }
+    var imageMinScale: Float = 1f
+    var imageMaxScale: Float = 1f
     var imageRotation: Float
         get() = imageMatrix.values().let { v -> -(atan2(v[Matrix.MSKEW_X], v[Matrix.MSCALE_X]) * (180.0 / PI)).toFloat() }
         set(value) {
@@ -117,6 +119,8 @@ class TiledImageView @JvmOverloads constructor(
                 }
             }
             imageMatrix.postScale(initImageScale, initImageScale)
+            imageMinScale = initImageScale / 2f
+            imageMaxScale = 2f
             touchBehavior.let {
                 if (it is DefaultTouchBehavior) {
                     it.setInitImageCenter(PointF(sourceImageWidth * initImageScale / 2f, sourceImageHeight * initImageScale / 2f))
@@ -169,10 +173,10 @@ class TiledImageView @JvmOverloads constructor(
                         val newTouchDistance = getTouchDistance(event)
                         if (isScalingEnabled) {
                             (newTouchDistance / touchDistance).let {
-                                if (isPanningEnabled) {
-                                    imageMatrix.postScale(it, it, touchCenter.x, touchCenter.y)
-                                } else {
-                                    imageMatrix.postScale(it, it, initImageCenter.x, initImageCenter.y)
+                                val imageScale = this@TiledImageView.imageScale
+                                val center = if (isPanningEnabled) touchCenter else initImageCenter
+                                if ((it < 1f && imageScale > imageMinScale) || (it > 1f && imageScale < imageMaxScale)) {
+                                    imageMatrix.postScale(it, it, center.x, center.y)
                                 }
                             }
                         }
