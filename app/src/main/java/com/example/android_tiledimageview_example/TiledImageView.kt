@@ -23,7 +23,7 @@ import androidx.core.graphics.values
 import androidx.core.view.doOnLayout
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.atan2
@@ -304,7 +304,7 @@ class TiledImageView @JvmOverloads constructor(
             }
 
             // Decode bitmap of preview tile
-            previewTile?.decodeBitmap(this@TiledImageView, imageUri!!)
+            previewTile?.decodeBitmap()
         }
 
         fun drawTiles(canvas: Canvas) {
@@ -320,7 +320,7 @@ class TiledImageView @JvmOverloads constructor(
 
             // activeTiles 중 tile.resolutionLv != curResolutionLv 인데 디코딩 중인 타일들의 비트맵 해제
             activeTiles.filter { tile: Tile ->
-                tile.resolutionLv != curResolutionLv && tile.state == Tile.State.DECODING
+                tile.resolutionLv != curResolutionLv && tile.state == TileState.DECODING
             }.forEach { tile: Tile ->
                 tile.freeBitmap()
                 activeTiles.remove(tile)
@@ -328,15 +328,15 @@ class TiledImageView @JvmOverloads constructor(
 
             // 현재 뷰포트와 겹치고 Tile.State.FREE 상태인 타일들은 디코딩 시작
             getTilesOverlappedWithViewport(viewportRect).filter { tile: Tile ->
-                tile.state == Tile.State.FREE
+                tile.state == TileState.FREE
             }.forEach { tile: Tile ->
-                tile.decodeBitmap(this@TiledImageView, imageUri!!)
+                tile.decodeBitmap()
                 activeTiles.add(tile)
             }
 
             // 뷰포트와 겹치는 모든 타일들이 디코딩 되었다면, activeTiles 중 뷰포트와 겹치지 않는 타일들의 비트맵 해제
             getTilesOverlappedWithViewport(viewportRect).all {
-                it.state == Tile.State.DECODED
+                it.state == TileState.DECODED
             }.let { allTilesOverappedWithViewportDecoded: Boolean ->
                 if (allTilesOverappedWithViewportDecoded) {
                     activeTiles.filter {
@@ -351,7 +351,6 @@ class TiledImageView @JvmOverloads constructor(
             // Draw preview tile
             previewTile?.let { tile: Tile ->
                 tile.drawBitmap(
-                    imageMatrix,
                     canvas,
                     tilePaint
                 )
@@ -362,7 +361,6 @@ class TiledImageView @JvmOverloads constructor(
                 it.resolutionLv
             }.forEach { tile: Tile ->
                 tile.drawBitmap(
-                    imageMatrix,
                     canvas,
                     if (debuggingCallback == null) tilePaint else debuggingTilePaints[tile.index % 3]
                 )
@@ -427,103 +425,100 @@ class TiledImageView @JvmOverloads constructor(
                 } ?: emptyList()
             }
         }
-    }
 
-    /**
-     * It has [bitmap] corresponding to [rect] based on the source image size.
-     * [bitmap] can be set or free or drawn as needed.
-     *
-     * @property index Index of tiles in same resolution level.
-     * @property rect The area to decode based on the source image size.
-     * @property sampleSize It need to do subsampling based on viewport size.
-     * @property bitmap A bitmap decoded by the required area based on the source image.
-     */
-    private class Tile(
-        val resolutionLv: Int,
-        val index: Int,
-        val rect: Rect
-    ) {
-        var state: State = State.FREE
-        private val sampleSize: Int = 2f.pow(resolutionLv).toInt()
-        private var bitmap: Bitmap? = null
-        private var decodingJob: Job? = null
-        private var bitmapRegionDecoder: BitmapRegionDecoder? = null
+        /**
+         * It has [bitmap] corresponding to [rect] based on the source image size.
+         * [bitmap] can be set or free or drawn as needed.
+         *
+         * @property index Index of tiles in same resolution level.
+         * @property rect The area to decode based on the source image size.
+         * @property sampleSize It need to do subsampling based on viewport size.
+         * @property bitmap A bitmap decoded by the required area based on the source image.
+         */
+        private inner class Tile(
+            val resolutionLv: Int,
+            val index: Int,
+            val rect: Rect
+        ) {
+            var state: TileState = TileState.FREE
+            private val sampleSize: Int = 2f.pow(resolutionLv).toInt()
+            private var bitmap: Bitmap? = null
+            private var bitmapRegionDecoder: BitmapRegionDecoder? = null
 
-        fun freeBitmap() {
-            decodingJob?.cancel()
-            decodingJob = null
-            bitmap?.recycle()
-            bitmap = null
+            fun freeBitmap() {
+                bitmap?.recycle()
+                bitmap = null
 
-            state = State.FREE
-        }
-
-        fun decodeBitmap(tiledImageView: TiledImageView, imageUri: Uri) {
-            if (decodingJob?.isActive == true) return
-
-            decodingJob = CoroutineScope(Dispatchers.Default).launch {
-                state = State.DECODING
-
-                if (bitmapRegionDecoder == null) {
-                    bitmapRegionDecoder = tiledImageView.context.contentResolver.openInputStream(imageUri).use {
-                        it?.let {
-                            BitmapRegionDecoder.newInstance(it, false)
-                        }
-                    }
-                }
-
-                bitmapRegionDecoder?.let { decoder: BitmapRegionDecoder ->
-                    val decodedBitmap = decoder.decodeRegion(
-                        rect,
-                        BitmapFactory.Options().apply {
-                            inSampleSize = sampleSize
-                        }
-                    )
-
-                    if (state == State.DECODING) {
-                        bitmap = decodedBitmap
-                        state = State.DECODED
-                        tiledImageView.invalidate()
-                    }
-                } ?: run {
-                    freeBitmap()
-                }
-            }
-        }
-
-        fun getBitmapAllocationByteCount(): Int {
-            return bitmap?.allocationByteCount ?: 0
-        }
-
-        fun drawBitmap(imageMatrix: Matrix, canvas: Canvas, paint: Paint? = null) {
-            val tileBitmap: Bitmap = this.bitmap ?: return
-            val tileMatrix: Matrix = Matrix(imageMatrix).also { matrix: Matrix ->
-                val imageMatrixValues: FloatArray = imageMatrix.values()
-                val imageScale: Float = sqrt(imageMatrixValues[Matrix.MSCALE_X] * imageMatrixValues[Matrix.MSCALE_X] + imageMatrixValues[Matrix.MSKEW_Y] * imageMatrixValues[Matrix.MSKEW_Y])
-                val imageRotation: Float = -(atan2(imageMatrixValues[Matrix.MSKEW_X], imageMatrixValues[Matrix.MSCALE_X]) * (180.0 / PI)).toFloat()
-
-                val sampleSize: Float = sampleSize.toFloat()
-                matrix.postScale(sampleSize, sampleSize)
-
-                val matrixValues: FloatArray = matrix.values().also {
-                    it[2] = imageMatrixValues[2]
-                    it[5] = imageMatrixValues[5]
-                }
-                matrix.setValues(matrixValues)
-
-                val (dx: Float, dy: Float) = PointF(rect.left * imageScale, rect.top * imageScale).apply {
-                    rotate(PointF(0f, 0f), imageRotation)
-                }.let {
-                    it.x to it.y
-                }
-                matrix.postTranslate(dx, dy)
+                state = TileState.FREE
             }
 
-            canvas.drawBitmap(tileBitmap, tileMatrix, paint)
-        }
+            fun decodeBitmap() {
+                state = TileState.DECODING
 
-        enum class State {
-            FREE, DECODING, DECODED
+                CoroutineScope(Dispatchers.Default).launch {
+                    delay(200)
+
+                    val viewportRect: RectF = getViewportRect()
+                    if (!isTileOverlappedWithViewport(this@Tile, viewportRect)) return@launch
+
+                    if (bitmapRegionDecoder == null) {
+                        val imageUri = this@TiledImageView.imageUri ?: return@launch
+                        bitmapRegionDecoder = context.contentResolver.openInputStream(imageUri).use {
+                            it?.let {
+                                BitmapRegionDecoder.newInstance(it, false)
+                            }
+                        }
+                    }
+
+                    bitmapRegionDecoder?.let { decoder: BitmapRegionDecoder ->
+                        val decodedBitmap = decoder.decodeRegion(
+                            rect,
+                            BitmapFactory.Options().apply {
+                                inSampleSize = sampleSize
+                            }
+                        )
+
+                        if (state == TileState.DECODING) {
+                            bitmap = decodedBitmap
+                            state = TileState.DECODED
+                            invalidate()
+                        }
+                    } ?: run {
+                        freeBitmap()
+                    }
+                }
+            }
+
+            fun getBitmapAllocationByteCount(): Int {
+                return bitmap?.allocationByteCount ?: 0
+            }
+
+            fun drawBitmap(canvas: Canvas, paint: Paint? = null) {
+                val tileBitmap: Bitmap = this.bitmap ?: return
+                val tileMatrix: Matrix = Matrix(imageMatrix).also { matrix: Matrix ->
+                    val imageMatrixValues: FloatArray = imageMatrix.values()
+                    val imageScale: Float = sqrt(imageMatrixValues[Matrix.MSCALE_X] * imageMatrixValues[Matrix.MSCALE_X] + imageMatrixValues[Matrix.MSKEW_Y] * imageMatrixValues[Matrix.MSKEW_Y])
+                    val imageRotation: Float = -(atan2(imageMatrixValues[Matrix.MSKEW_X], imageMatrixValues[Matrix.MSCALE_X]) * (180.0 / PI)).toFloat()
+
+                    val sampleSize: Float = sampleSize.toFloat()
+                    matrix.postScale(sampleSize, sampleSize)
+
+                    val matrixValues: FloatArray = matrix.values().also {
+                        it[2] = imageMatrixValues[2]
+                        it[5] = imageMatrixValues[5]
+                    }
+                    matrix.setValues(matrixValues)
+
+                    val (dx: Float, dy: Float) = PointF(rect.left * imageScale, rect.top * imageScale).apply {
+                        rotate(PointF(0f, 0f), imageRotation)
+                    }.let {
+                        it.x to it.y
+                    }
+                    matrix.postTranslate(dx, dy)
+                }
+
+                canvas.drawBitmap(tileBitmap, tileMatrix, paint)
+            }
         }
     }
 
@@ -534,6 +529,10 @@ class TiledImageView @JvmOverloads constructor(
             val sinR = sin(r)
             val cosR = cos(r)
             set(((x - axis.x) * cosR) - ((y - axis.y) * sinR) + axis.x, ((x - axis.x) * sinR) + ((y - axis.y) * cosR) + axis.y)
+        }
+
+        private enum class TileState {
+            FREE, DECODING, DECODED
         }
     }
 }
