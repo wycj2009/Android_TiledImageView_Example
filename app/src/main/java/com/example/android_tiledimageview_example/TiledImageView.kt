@@ -135,6 +135,15 @@ class TiledImageView @JvmOverloads constructor(
         FIT_VERTICAL
     }
 
+    /** The behavior of touches on [TiledImageView]. */
+    abstract class TouchBehavior {
+        var isPanningEnabled: Boolean = true
+        var isScalingEnabled: Boolean = true
+        var isRotatingEnabled: Boolean = true
+
+        abstract fun invoke(event: MotionEvent): Boolean
+    }
+
     /** Default behavior of touches on [TiledImageView]. */
     private inner class DefaultTouchBehavior : TouchBehavior() {
         private val touchCenter: PointF = PointF()
@@ -238,15 +247,6 @@ class TiledImageView @JvmOverloads constructor(
         private fun getTouchAngle(e: MotionEvent): Float {
             return (atan2(e.getY(0) - e.getY(1), e.getX(0) - e.getX(1)) * 180.0 / PI).toFloat()
         }
-    }
-
-    /** The behavior of touches on [TiledImageView]. */
-    abstract class TouchBehavior {
-        var isPanningEnabled: Boolean = true
-        var isScalingEnabled: Boolean = true
-        var isRotatingEnabled: Boolean = true
-
-        abstract fun invoke(event: MotionEvent): Boolean
     }
 
     private inner class TilingHelper {
