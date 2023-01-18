@@ -167,7 +167,7 @@ class TiledImageView @JvmOverloads constructor(
                 }
                 MotionEvent.ACTION_MOVE -> {
                     // For panning
-                    val newTouchCenter = PointF(getTouchCenter(event))
+                    val newTouchCenter = getTouchCenter(event)
                     if (isPanningEnabled) {
                         (newTouchCenter - touchCenter).let {
                             imageMatrix.postTranslate(it.x, it.y)
