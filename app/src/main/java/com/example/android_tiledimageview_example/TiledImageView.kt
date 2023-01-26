@@ -20,7 +20,6 @@ import android.view.MotionEvent
 import android.view.View
 import androidx.core.graphics.minus
 import androidx.core.graphics.values
-import androidx.core.view.doOnLayout
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -79,6 +78,30 @@ class TiledImageView @JvmOverloads constructor(
     private var imageUri: Uri? = null
     private var tilingHelper: TilingHelper = TilingHelper()
 
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        val initImageScale = when (scaleType) {
+            ScaleType.FIT_INSIDE -> {
+                (width.toFloat() / sourceImageWidth).let {
+                    if (sourceImageHeight * it > height) height.toFloat() / sourceImageHeight
+                    else it
+                }
+            }
+            ScaleType.FIT_HORIZONTAL -> {
+                width.toFloat() / sourceImageWidth
+            }
+            ScaleType.FIT_VERTICAL -> {
+                height.toFloat() / sourceImageHeight
+            }
+        }
+        imageMatrix.run {
+            reset()
+            postScale(initImageScale, initImageScale)
+            postTranslate((width - (sourceImageWidth * initImageScale)) / 2f, (height - (sourceImageHeight * initImageScale)) / 2f)
+        }
+        if (imageMinScale == null) imageMinScale = initImageScale / 2f
+        if (imageMaxScale == null) imageMaxScale = 2f
+    }
+
     override fun onDraw(canvas: Canvas) {
         tilingHelper.drawTiles(canvas)
     }
@@ -101,32 +124,8 @@ class TiledImageView @JvmOverloads constructor(
         sourceImageWidth = bitmapRegionDecoder.width
         sourceImageHeight = bitmapRegionDecoder.height
         imageMatrix.reset()
-
-        doOnLayout { view: View ->
-            val initImageScale = when (scaleType) {
-                ScaleType.FIT_INSIDE -> {
-                    (view.width.toFloat() / sourceImageWidth).let {
-                        if (sourceImageHeight * it > view.height) view.height.toFloat() / sourceImageHeight
-                        else it
-                    }
-                }
-                ScaleType.FIT_HORIZONTAL -> {
-                    view.width.toFloat() / sourceImageWidth
-                }
-                ScaleType.FIT_VERTICAL -> {
-                    view.height.toFloat() / sourceImageHeight
-                }
-            }
-            imageMatrix.postScale(initImageScale, initImageScale)
-            if (imageMinScale == null) imageMinScale = initImageScale / 2f
-            if (imageMaxScale == null) imageMaxScale = 2f
-            touchBehavior.let {
-                if (it is DefaultTouchBehavior) {
-                    it.setInitImageCenter(PointF(sourceImageWidth * initImageScale / 2f, sourceImageHeight * initImageScale / 2f))
-                }
-            }
-            tilingHelper.init()
-        }
+        tilingHelper.init()
+        requestLayout()
     }
 
     enum class ScaleType {
@@ -149,11 +148,6 @@ class TiledImageView @JvmOverloads constructor(
         private val touchCenter: PointF = PointF()
         private var touchDistance: Float = 0f
         private var touchAngle: Float = 0f
-        private val initImageCenter: PointF = PointF()
-
-        fun setInitImageCenter(center: PointF) {
-            initImageCenter.set(center)
-        }
 
         override fun invoke(event: MotionEvent): Boolean {
             when (event.action and MotionEvent.ACTION_MASK) {
@@ -180,7 +174,7 @@ class TiledImageView @JvmOverloads constructor(
                         val newTouchDistance = getTouchDistance(event)
                         if (isScalingEnabled) {
                             (newTouchDistance / touchDistance).let {
-                                val center = if (isPanningEnabled) touchCenter else initImageCenter
+                                val center = if (isPanningEnabled) touchCenter else PointF(width / 2f, height / 2f)
                                 val imageScale = this@TiledImageView.imageScale
                                 if ((it < 1f && imageScale > imageMinScale!!) || (it > 1f && imageScale < imageMaxScale!!)) {
                                     imageMatrix.postScale(it, it, center.x, center.y)
@@ -198,7 +192,7 @@ class TiledImageView @JvmOverloads constructor(
                                 if (isPanningEnabled) {
                                     imageMatrix.postRotate(it, touchCenter.x, touchCenter.y)
                                 } else {
-                                    imageMatrix.postRotate(it, initImageCenter.x, initImageCenter.y)
+                                    imageMatrix.postRotate(it, width / 2f, height / 2f)
                                 }
                             }
                         }
@@ -272,14 +266,16 @@ class TiledImageView @JvmOverloads constructor(
                 clear()
             }
 
-            // Init maxResolutionLv
+            // Init maxResolutionLv (뷰의 크기는 가변적이고, 뷰의 크기가 변경될 때마다 모든 타일들을 초기화하는 건 비효율적이므로 고정 값인 기기 사이즈를 기준으로 maxResolutionLv 를 정한다.)
+            val (displayWidth: Int, displayHeight: Int) = context.resources.displayMetrics.let { it.widthPixels to it.heightPixels }
             var (resizedImageWidth: Int, resizedImageHeight: Int) = sourceImageWidth to sourceImageHeight
-            while (resizedImageWidth > this@TiledImageView.width || resizedImageHeight > this@TiledImageView.height) {
+            while (resizedImageWidth > displayWidth || resizedImageHeight > displayHeight) {
                 resizedImageWidth /= 2
                 resizedImageHeight /= 2
                 maxResolutionLv++
             }
             maxResolutionLv--
+            maxResolutionLv = max(0, min(2, maxResolutionLv)) // 모든 타일의 개수는 (4^maxResolutionLv - 1) / 3. 타일이 너무 많아지는 걸 방지하기 위해 maxResolutionLv 의 최댓값을 2로 준다.
 
             // Init tiles
             tiles = Array(maxResolutionLv + 1) { resolutionLv ->
@@ -308,6 +304,7 @@ class TiledImageView @JvmOverloads constructor(
         }
 
         fun drawTiles(canvas: Canvas) {
+            val curResolutionLv: Int = this.curResolutionLv
             val viewportRect: RectF = getViewportRect()
 
             // activeTiles 중 tile.resolutionLv == curResolutionLv 인데 뷰포트와 겹치지 않는 타일들의 비트맵 해제
