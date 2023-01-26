@@ -10,7 +10,7 @@
         android:id="@+id/tiled_image"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@android:color/black" />
+        android:background="@android:color/darker_gray" />
 
     <TextView
         android:id="@+id/debugging_text"
