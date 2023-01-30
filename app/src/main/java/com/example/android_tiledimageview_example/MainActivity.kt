@@ -14,10 +14,12 @@ class MainActivity : AppCompatActivity() {
 
         binding.tiledImage.run {
             touchBehavior.isRotatingEnabled = false
-            setImage(R.drawable.mountain_11785x7741)
-            debuggingCallback = { maxResolutionLv: Int, curResolutionLv: Int, activeTilesSize: Int, bitmapAllocatedMemorySizeMb: Long ->
-                binding.debuggingText.text = "maxResolutionLv=${maxResolutionLv}, curResolutionLv=${curResolutionLv}, activeTilesSize=${activeTilesSize}, bitmapAllocatedMemorySizeMb=${bitmapAllocatedMemorySizeMb}"
+            imageMinScale = 0f
+            imageMaxScale = Float.MAX_VALUE
+            debuggingCallback = { topTileLevel: Int, curTileLevel: Int, curSampleSize: Int, activeTilesSize: Int, bitmapAllocatedMemorySizeKb: Long ->
+                binding.debuggingText.text = "topTileLevel=${topTileLevel}, curTileLevel=${curTileLevel}, curSampleSize=${curSampleSize}, activeTilesSize=${activeTilesSize}, bitmapAllocatedMemorySizeKb=${bitmapAllocatedMemorySizeKb}"
             }
+            setImage(R.drawable.mountain_11785x7741)
         }
     }
 }

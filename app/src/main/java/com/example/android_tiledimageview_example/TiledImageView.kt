@@ -40,7 +40,7 @@ class TiledImageView @JvmOverloads constructor(
     defStyleAttr: Int = 0,
     defStyleRes: Int = 0
 ) : View(context, attrs, defStyleAttr, defStyleRes) {
-    var debuggingCallback: ((maxResolutionLv: Int, curResolutionLv: Int, activeTilesSize: Int, bitmapAllocatedMemorySizeMb: Long) -> Unit)? = null
+    var debuggingCallback: ((topTileLevel: Int, curTileLevel: Int, curSampleSize: Int, activeTilesSize: Int, bitmapAllocatedMemorySizeKb: Long) -> Unit)? = null
     var sourceImageWidth: Int = 0
         private set
     var sourceImageHeight: Int = 0
@@ -244,12 +244,14 @@ class TiledImageView @JvmOverloads constructor(
     }
 
     private inner class TilingHelper {
-        private var maxResolutionLv: Int = 0
-        private val curResolutionLv: Int
-            get() = max(0, min(log(imageScale, 0.5f).toInt(), maxResolutionLv))
+        private var topTileLevel: Int = 0
+        private val curTileLevel: Int
+            get() = max(0, min(log(imageScale, 0.5f).toInt(), topTileLevel))
+        private val curSampleSize: Int
+            get() = 2f.pow(max(0, log(imageScale, 0.5f).toInt())).toInt()
         private var tiles: Array<Array<Tile>>? = null
-        private val previewTile: Tile?
-            get() = tiles?.get(maxResolutionLv)?.get(0)
+        private val topTile: Tile?
+            get() = tiles?.get(topTileLevel)?.get(0)
         private val activeTiles: MutableSet<Tile> = mutableSetOf()
         private val tilePaint: Paint = Paint().apply { isAntiAlias = true }
         private val debuggingTilePaints: Array<Paint> = arrayOf(
@@ -259,27 +261,27 @@ class TiledImageView @JvmOverloads constructor(
         )
 
         fun init() {
-            maxResolutionLv = 0
+            topTileLevel = 0
             tiles = null
             activeTiles.run {
                 forEach { it.freeBitmap() }
                 clear()
             }
 
-            // Init maxResolutionLv (뷰의 크기는 가변적이고, 뷰의 크기가 변경될 때마다 모든 타일들을 초기화하는 건 비효율적이므로 고정 값인 기기 사이즈를 기준으로 maxResolutionLv 를 정한다.)
+            // Init topTileLevel (뷰의 크기는 가변적이고, 뷰의 크기가 변경될 때마다 모든 타일들을 초기화하는 건 비효율적이므로 고정 값인 기기 사이즈를 기준으로 topTileLevel 를 정한다.)
             val (displayWidth: Int, displayHeight: Int) = context.resources.displayMetrics.let { it.widthPixels to it.heightPixels }
             var (resizedImageWidth: Int, resizedImageHeight: Int) = sourceImageWidth to sourceImageHeight
             while (resizedImageWidth > displayWidth || resizedImageHeight > displayHeight) {
                 resizedImageWidth /= 2
                 resizedImageHeight /= 2
-                maxResolutionLv++
+                topTileLevel++
             }
-            maxResolutionLv--
-            maxResolutionLv = max(0, min(2, maxResolutionLv)) // 모든 타일의 개수는 (4^maxResolutionLv - 1) / 3. 타일이 너무 많아지는 걸 방지하기 위해 maxResolutionLv 의 최댓값을 2로 준다.
+            topTileLevel--
+            topTileLevel = max(0, min(2, topTileLevel)) // 모든 타일의 개수는 (4^topTileLevel - 1) / 3. 타일이 너무 많아지는 걸 방지하기 위해 topTileLevel 의 최댓값을 2로 준다.
 
             // Init tiles
-            tiles = Array(maxResolutionLv + 1) { resolutionLv ->
-                val tileSideLength = 2f.pow(maxResolutionLv - resolutionLv).toInt()
+            tiles = Array(topTileLevel + 1) { tileLevel ->
+                val tileSideLength = 2f.pow(topTileLevel - tileLevel).toInt()
                 val (tileWidth: Int, tileHeight: Int) = sourceImageWidth / tileSideLength to sourceImageHeight / tileSideLength
 
                 Array(tileSideLength * tileSideLength) { tileIdx ->
@@ -287,52 +289,44 @@ class TiledImageView @JvmOverloads constructor(
                     val yIdx = tileIdx / tileSideLength
 
                     Tile(
-                        resolutionLv = resolutionLv,
+                        level = tileLevel,
                         index = tileIdx,
                         rect = Rect(
                             tileWidth * xIdx,
                             tileHeight * yIdx,
                             if (xIdx < tileSideLength - 1) tileWidth * (xIdx + 1) else sourceImageWidth, // 픽셀 유실 방지.
                             if (yIdx < tileSideLength - 1) tileHeight * (yIdx + 1) else sourceImageHeight // 픽셀 유실 방지.
-                        )
+                        ),
+                        isTopTile = tileLevel == topTileLevel
                     )
                 }
             }
-
-            // Decode bitmap of preview tile
-            previewTile?.decodeBitmap()
         }
 
         fun drawTiles(canvas: Canvas) {
-            val curResolutionLv: Int = this.curResolutionLv
             val viewportRect: RectF = getViewportRect()
+            val curTileLevel: Int = this.curTileLevel
+            val tilesOverlappedWithViewport: List<Tile> = getTilesOverlappedWithViewport(viewportRect)
+            val curSampleSize: Int = this.curSampleSize
 
-            // activeTiles 중 tile.resolutionLv == curResolutionLv 인데 뷰포트와 겹치지 않는 타일들의 비트맵 해제
+            // activeTiles 중 tile.level == curTileLevel 인데 뷰포트와 겹치지 않는 타일들의 비트맵 해제
             activeTiles.filter { tile: Tile ->
-                tile.resolutionLv == curResolutionLv && !isTileOverlappedWithViewport(tile, viewportRect)
+                tile.level == curTileLevel && !isTileOverlappedWithViewport(tile, viewportRect)
             }.forEach { tile: Tile ->
                 tile.freeBitmap()
                 activeTiles.remove(tile)
             }
 
-            // activeTiles 중 tile.resolutionLv != curResolutionLv 인데 디코딩 중인 타일들의 비트맵 해제
+            // activeTiles 중 tile.level != curTileLevel 인데 디코딩 중인 타일들의 비트맵 해제
             activeTiles.filter { tile: Tile ->
-                tile.resolutionLv != curResolutionLv && tile.state == TileState.DECODING
+                tile.level != curTileLevel && tile.state == TileState.DECODING
             }.forEach { tile: Tile ->
                 tile.freeBitmap()
                 activeTiles.remove(tile)
-            }
-
-            // 현재 뷰포트와 겹치고 Tile.State.FREE 상태인 타일들은 디코딩 시작
-            getTilesOverlappedWithViewport(viewportRect).filter { tile: Tile ->
-                tile.state == TileState.FREE
-            }.forEach { tile: Tile ->
-                tile.decodeBitmap()
-                activeTiles.add(tile)
             }
 
             // 뷰포트와 겹치는 모든 타일들이 디코딩 되었다면, activeTiles 중 뷰포트와 겹치지 않는 타일들의 비트맵 해제
-            getTilesOverlappedWithViewport(viewportRect).all {
+            tilesOverlappedWithViewport.all {
                 it.state == TileState.DECODED
             }.let { allTilesOverappedWithViewportDecoded: Boolean ->
                 if (allTilesOverappedWithViewportDecoded) {
@@ -345,8 +339,23 @@ class TiledImageView @JvmOverloads constructor(
                 }
             }
 
-            // Draw preview tile
-            previewTile?.let { tile: Tile ->
+            // topTile 디코딩이 필요한 경우 디코딩 시작
+            topTile?.let { tile: Tile ->
+                if (tile.state == TileState.FREE || (curTileLevel == topTileLevel && tile.sampleSize != curSampleSize)) {
+                    tile.decodeBitmap()
+                }
+            }
+
+            // 현재 뷰포트와 겹치고 Tile.State.FREE 상태인 타일들은 디코딩 시작
+            tilesOverlappedWithViewport.filter { tile: Tile ->
+                tile.state == TileState.FREE
+            }.forEach { tile: Tile ->
+                tile.decodeBitmap()
+                activeTiles.add(tile)
+            }
+
+            // Draw top tile
+            topTile?.let { tile: Tile ->
                 tile.drawBitmap(
                     canvas,
                     tilePaint
@@ -355,7 +364,7 @@ class TiledImageView @JvmOverloads constructor(
 
             // Draw active tiles
             activeTiles.sortedByDescending {
-                it.resolutionLv
+                it.level
             }.forEach { tile: Tile ->
                 tile.drawBitmap(
                     canvas,
@@ -365,10 +374,11 @@ class TiledImageView @JvmOverloads constructor(
 
             // For debugging
             debuggingCallback?.invoke(
-                maxResolutionLv,
-                curResolutionLv,
+                topTileLevel,
+                curTileLevel,
+                curSampleSize,
                 1 + activeTiles.size,
-                ((previewTile?.getBitmapAllocationByteCount()?.toLong() ?: 0L) + activeTiles.sumOf { it.getBitmapAllocationByteCount().toLong() }) / 1024L / 1024L
+                ((topTile?.getBitmapAllocationByteCount()?.toLong() ?: 0L) + activeTiles.sumOf { it.getBitmapAllocationByteCount().toLong() }) / 1024L
             )
         }
 
@@ -406,7 +416,7 @@ class TiledImageView @JvmOverloads constructor(
         }
 
         private fun isTileOverlappedWithViewport(tile: Tile, viewportRect: RectF): Boolean {
-            return if (tile.resolutionLv != curResolutionLv) {
+            return if (tile.level != curTileLevel) {
                 false
             } else {
                 !(tile.rect.left > viewportRect.right || tile.rect.right < viewportRect.left || tile.rect.top > viewportRect.bottom || tile.rect.bottom < viewportRect.top)
@@ -414,10 +424,10 @@ class TiledImageView @JvmOverloads constructor(
         }
 
         private fun getTilesOverlappedWithViewport(viewportRect: RectF): List<Tile> {
-            return if (curResolutionLv == maxResolutionLv) {
+            return if (curTileLevel == topTileLevel) {
                 emptyList()
             } else {
-                tiles?.get(curResolutionLv)?.filter { tile: Tile ->
+                tiles?.get(curTileLevel)?.filter { tile: Tile ->
                     isTileOverlappedWithViewport(tile, viewportRect)
                 } ?: emptyList()
             }
@@ -427,18 +437,19 @@ class TiledImageView @JvmOverloads constructor(
          * It has [bitmap] corresponding to [rect] based on the source image size.
          * [bitmap] can be set or free or drawn as needed.
          *
-         * @property index Index of tiles in same resolution level.
+         * @property index Index of tiles in same tile level.
          * @property rect The area to decode based on the source image size.
          * @property sampleSize It need to do subsampling based on viewport size.
          * @property bitmap A bitmap decoded by the required area based on the source image.
          */
         private inner class Tile(
-            val resolutionLv: Int,
+            val level: Int,
             val index: Int,
-            val rect: Rect
+            val rect: Rect,
+            private val isTopTile: Boolean
         ) {
             var state: TileState = TileState.FREE
-            private val sampleSize: Int = 2f.pow(resolutionLv).toInt()
+            var sampleSize: Int = 2f.pow(level).toInt()
             private var bitmap: Bitmap? = null
             private var bitmapRegionDecoder: BitmapRegionDecoder? = null
 
@@ -451,12 +462,17 @@ class TiledImageView @JvmOverloads constructor(
 
             fun decodeBitmap() {
                 state = TileState.DECODING
+                if (isTopTile) {
+                    sampleSize = curSampleSize
+                }
 
                 CoroutineScope(Dispatchers.Default).launch {
-                    delay(200)
+                    if (!isTopTile) {
+                        delay(200)
+                    }
 
                     val viewportRect: RectF = getViewportRect()
-                    if (!isTileOverlappedWithViewport(this@Tile, viewportRect)) return@launch
+                    if (!isTopTile && !isTileOverlappedWithViewport(this@Tile, viewportRect)) return@launch
 
                     if (bitmapRegionDecoder == null) {
                         val imageUri = this@TiledImageView.imageUri ?: return@launch
@@ -468,14 +484,12 @@ class TiledImageView @JvmOverloads constructor(
                     }
 
                     bitmapRegionDecoder?.let { decoder: BitmapRegionDecoder ->
-                        val decodedBitmap = decoder.decodeRegion(
-                            rect,
-                            BitmapFactory.Options().apply {
-                                inSampleSize = sampleSize
-                            }
-                        )
+                        val options = BitmapFactory.Options().apply {
+                            inSampleSize = sampleSize
+                        }
+                        val decodedBitmap = decoder.decodeRegion(rect, options)
 
-                        if (state == TileState.DECODING) {
+                        if (state == TileState.DECODING && (!isTopTile || (isTopTile && options.inSampleSize == sampleSize))) {
                             bitmap = decodedBitmap
                             state = TileState.DECODED
                             invalidate()
@@ -497,12 +511,16 @@ class TiledImageView @JvmOverloads constructor(
                     val imageScale: Float = sqrt(imageMatrixValues[Matrix.MSCALE_X] * imageMatrixValues[Matrix.MSCALE_X] + imageMatrixValues[Matrix.MSKEW_Y] * imageMatrixValues[Matrix.MSKEW_Y])
                     val imageRotation: Float = -(atan2(imageMatrixValues[Matrix.MSKEW_X], imageMatrixValues[Matrix.MSCALE_X]) * (180.0 / PI)).toFloat()
 
-                    val sampleSize: Float = sampleSize.toFloat()
-                    matrix.postScale(sampleSize, sampleSize)
+                    if (isTopTile) {
+                        matrix.postScale(sourceImageWidth.toFloat() / tileBitmap.width, sourceImageHeight.toFloat() / tileBitmap.height)
+                    } else {
+                        val sampleSize: Float = sampleSize.toFloat()
+                        matrix.postScale(sampleSize, sampleSize)
+                    }
 
                     val matrixValues: FloatArray = matrix.values().also {
-                        it[2] = imageMatrixValues[2]
-                        it[5] = imageMatrixValues[5]
+                        it[Matrix.MTRANS_X] = imageMatrixValues[Matrix.MTRANS_X]
+                        it[Matrix.MTRANS_Y] = imageMatrixValues[Matrix.MTRANS_Y]
                     }
                     matrix.setValues(matrixValues)
 
