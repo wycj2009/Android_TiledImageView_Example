@@ -40,7 +40,7 @@ class TiledImageView @JvmOverloads constructor(
     defStyleAttr: Int = 0,
     defStyleRes: Int = 0
 ) : View(context, attrs, defStyleAttr, defStyleRes) {
-    var debuggingCallback: ((topTileLevel: Int, curTileLevel: Int, curSampleSize: Int, activeTilesSize: Int, bitmapAllocatedMemorySizeKb: Long) -> Unit)? = null
+    var debuggingCallback: ((topTileLevel: Int, curTileLevel: Int, topTileSampleSize: Int, curTilesSampleSize: Int, activeTilesSize: Int, bitmapAllocatedMemorySizeKb: Long) -> Unit)? = null
     var sourceImageWidth: Int = 0
         private set
     var sourceImageHeight: Int = 0
@@ -247,7 +247,7 @@ class TiledImageView @JvmOverloads constructor(
         private var topTileLevel: Int = 0
         private val curTileLevel: Int
             get() = max(0, min(log(imageScale, 0.5f).toInt(), topTileLevel))
-        private val curSampleSize: Int
+        private val curTilesSampleSize: Int
             get() = 2f.pow(max(0, log(imageScale, 0.5f).toInt())).toInt()
         private var tiles: Array<Array<Tile>>? = null
         private val topTile: Tile?
@@ -307,7 +307,7 @@ class TiledImageView @JvmOverloads constructor(
             val viewportRect: RectF = getViewportRect()
             val curTileLevel: Int = this.curTileLevel
             val tilesOverlappedWithViewport: List<Tile> = getTilesOverlappedWithViewport(viewportRect)
-            val curSampleSize: Int = this.curSampleSize
+            val curTilesSampleSize: Int = this.curTilesSampleSize
 
             // activeTiles 중 tile.level == curTileLevel 인데 뷰포트와 겹치지 않는 타일들의 비트맵 해제
             activeTiles.filter { tile: Tile ->
@@ -341,7 +341,7 @@ class TiledImageView @JvmOverloads constructor(
 
             // topTile 디코딩이 필요한 경우 디코딩 시작
             topTile?.let { tile: Tile ->
-                if (tile.state == TileState.FREE || (curTileLevel == topTileLevel && tile.sampleSize != curSampleSize)) {
+                if (tile.state == TileState.FREE || (curTileLevel == topTileLevel && tile.sampleSize != curTilesSampleSize)) {
                     tile.decodeBitmap()
                 }
             }
@@ -376,7 +376,8 @@ class TiledImageView @JvmOverloads constructor(
             debuggingCallback?.invoke(
                 topTileLevel,
                 curTileLevel,
-                curSampleSize,
+                topTile?.sampleSize ?: 0,
+                curTilesSampleSize,
                 1 + activeTiles.size,
                 ((topTile?.getBitmapAllocationByteCount()?.toLong() ?: 0L) + activeTiles.sumOf { it.getBitmapAllocationByteCount().toLong() }) / 1024L
             )
@@ -461,10 +462,11 @@ class TiledImageView @JvmOverloads constructor(
             }
 
             fun decodeBitmap() {
-                state = TileState.DECODING
                 if (isTopTile) {
-                    sampleSize = curSampleSize
+                    sampleSize = if (state == TileState.FREE) max(sampleSize, curTilesSampleSize) else curTilesSampleSize
                 }
+
+                state = TileState.DECODING
 
                 CoroutineScope(Dispatchers.Default).launch {
                     if (!isTopTile) {

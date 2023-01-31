@@ -15,20 +15,24 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         binding.tiledImage.run {
-            touchBehavior.isRotatingEnabled = false
+            scaleType = TiledImageView.ScaleType.FIT_INSIDE
             imageMinScale = 0f
             imageMaxScale = Float.MAX_VALUE
+            touchBehavior.isPanningEnabled = true
+            touchBehavior.isScalingEnabled = true
+            touchBehavior.isRotatingEnabled = false
             setImage(R.drawable.mountain_11785x7741)
         }
 
         binding.debuggingSwitch.run {
             setOnCheckedChangeListener { _, isChecked ->
                 if (isChecked) {
-                    binding.tiledImage.debuggingCallback = { topTileLevel: Int, curTileLevel: Int, curSampleSize: Int, activeTilesSize: Int, bitmapAllocatedMemorySizeKb: Long ->
+                    binding.tiledImage.debuggingCallback = { topTileLevel: Int, curTileLevel: Int, topTileSampleSize: Int, curTilesSampleSize: Int, activeTilesSize: Int, bitmapAllocatedMemorySizeKb: Long ->
                         binding.debuggingText.text = buildString {
                             append("topTileLevel=${topTileLevel}")
                             append(", curTileLevel=${curTileLevel}")
-                            append(", curSampleSize=${curSampleSize}")
+                            append(", topTileSampleSize=${topTileSampleSize}")
+                            append(", curTilesSampleSize=${curTilesSampleSize}")
                             append(", activeTilesSize=${activeTilesSize}")
                             append(", bitmapAllocatedMemorySizeKb=${DecimalFormat("#,###").format(bitmapAllocatedMemorySizeKb)}KB")
                         }
