@@ -18,9 +18,9 @@ class MainActivity : AppCompatActivity() {
             scaleType = TiledImageView.ScaleType.FIT_INSIDE
             imageMinScale = 0f
             imageMaxScale = Float.MAX_VALUE
-            touchBehavior.isPanningEnabled = true
-            touchBehavior.isScalingEnabled = true
-            touchBehavior.isRotatingEnabled = false
+            touchBehavior?.isPanningEnabled = true
+            touchBehavior?.isScalingEnabled = true
+            touchBehavior?.isRotatingEnabled = false
             setImage(R.drawable.mountain_11785x7741)
         }
 

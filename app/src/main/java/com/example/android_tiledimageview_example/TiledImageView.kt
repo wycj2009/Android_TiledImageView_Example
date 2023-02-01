@@ -74,7 +74,7 @@ class TiledImageView @JvmOverloads constructor(
         }
     var scaleType: ScaleType = ScaleType.FIT_INSIDE
     val imageMatrix: Matrix = Matrix()
-    var touchBehavior: TouchBehavior = DefaultTouchBehavior()
+    var touchBehavior: TouchBehavior? = DefaultTouchBehavior()
     private var imageUri: Uri? = null
     private var tilingHelper: TilingHelper = TilingHelper()
 
@@ -107,7 +107,7 @@ class TiledImageView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        return touchBehavior.invoke(event)
+        return touchBehavior?.invoke(event) ?: return false
     }
 
     fun setImage(resId: Int) {
