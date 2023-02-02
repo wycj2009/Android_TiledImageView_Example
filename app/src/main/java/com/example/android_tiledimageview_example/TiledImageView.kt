@@ -78,6 +78,52 @@ class TiledImageView @JvmOverloads constructor(
     private var imageUri: Uri? = null
     private var tilingHelper: TilingHelper = TilingHelper()
 
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val parentWidth: Int = MeasureSpec.getSize(widthMeasureSpec)
+        val parentHeight: Int = MeasureSpec.getSize(heightMeasureSpec)
+        val widthMeasureMode: Int = MeasureSpec.getMode(widthMeasureSpec)
+        val heightMeasureMode: Int = MeasureSpec.getMode(heightMeasureSpec)
+        var measuredWidth: Int = if (widthMeasureMode == MeasureSpec.EXACTLY) getDefaultSize(suggestedMinimumWidth, widthMeasureSpec) else 0
+        var measuredHeight: Int = if (heightMeasureMode == MeasureSpec.EXACTLY) getDefaultSize(suggestedMinimumHeight, heightMeasureSpec) else 0
+        when (scaleType) {
+            ScaleType.FIT_INSIDE -> {
+                if (widthMeasureMode != MeasureSpec.EXACTLY && heightMeasureMode == MeasureSpec.EXACTLY) {
+                    measuredWidth = (sourceImageWidth.toFloat() / sourceImageHeight * measuredHeight).toInt()
+                } else if (widthMeasureMode == MeasureSpec.EXACTLY && heightMeasureMode != MeasureSpec.EXACTLY) {
+                    measuredHeight = (sourceImageHeight.toFloat() / sourceImageWidth * measuredWidth).toInt()
+                } else if (widthMeasureMode != MeasureSpec.EXACTLY && heightMeasureMode != MeasureSpec.EXACTLY) {
+                    (parentWidth.toFloat() / sourceImageWidth).let {
+                        if (sourceImageHeight * it > parentHeight) {
+                            measuredHeight = parentHeight
+                            measuredWidth = (sourceImageWidth.toFloat() / sourceImageHeight * measuredHeight).toInt()
+                        } else {
+                            measuredWidth = parentWidth
+                            measuredHeight = (sourceImageHeight.toFloat() / sourceImageWidth * measuredWidth).toInt()
+                        }
+                    }
+                }
+            }
+            ScaleType.FIT_HORIZONTAL -> {
+                if (widthMeasureMode != MeasureSpec.EXACTLY) {
+                    measuredWidth = min(parentWidth, sourceImageWidth)
+                }
+                if (heightMeasureMode != MeasureSpec.EXACTLY) {
+                    measuredHeight = (sourceImageHeight.toFloat() / sourceImageWidth * measuredWidth).toInt()
+                }
+            }
+            ScaleType.FIT_VERTICAL -> {
+                if (heightMeasureMode != MeasureSpec.EXACTLY) {
+                    measuredHeight = min(parentHeight, sourceImageHeight)
+                }
+                if (widthMeasureMode != MeasureSpec.EXACTLY) {
+                    measuredWidth = (sourceImageWidth.toFloat() / sourceImageHeight * measuredHeight).toInt()
+                }
+            }
+        }
+
+        setMeasuredDimension(measuredWidth, measuredHeight)
+    }
+
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         val initImageScale = when (scaleType) {
             ScaleType.FIT_INSIDE -> {
