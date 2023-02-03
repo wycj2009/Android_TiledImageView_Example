@@ -434,9 +434,9 @@ class TiledImageView @JvmOverloads constructor(
             val imageRotation = this@TiledImageView.imageRotation
             val imageMatrixValues = this@TiledImageView.imageMatrix.values()
 
-            val p1 = PointF(min(0f, -x) / imageScale, min(0f, -y) / imageScale)
-            val p2 = PointF(min(width.toFloat(), -x + (parent as View).width) / imageScale, p1.y)
-            val p3 = PointF(p1.x, min(height.toFloat(), -y + (parent as View).height) / imageScale)
+            val p1 = PointF(-x / imageScale, -y / imageScale)
+            val p2 = PointF((-x + (parent as View).width) / imageScale, p1.y)
+            val p3 = PointF(p1.x, (-y + (parent as View).height) / imageScale)
             val p4 = PointF(p2.x, p3.y)
 
             val (axis: PointF, angle: Float) = PointF(0f, 0f) to -imageRotation
