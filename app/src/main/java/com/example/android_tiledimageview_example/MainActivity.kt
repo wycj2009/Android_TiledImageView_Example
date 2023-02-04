@@ -16,11 +16,12 @@ class MainActivity : AppCompatActivity() {
 
         binding.tiledImage.run {
             scaleType = TiledImageView.ScaleType.FIT_INSIDE
+            viewportRectView = TiledImageView.ViewportRectView.ITSELF
             imageMinScale = 0f
             imageMaxScale = Float.MAX_VALUE
             touchBehavior?.isPanningEnabled = true
             touchBehavior?.isScalingEnabled = true
-            touchBehavior?.isRotatingEnabled = false
+            touchBehavior?.isRotatingEnabled = true
             setImage(R.drawable.mountain_11785x7741)
         }
 

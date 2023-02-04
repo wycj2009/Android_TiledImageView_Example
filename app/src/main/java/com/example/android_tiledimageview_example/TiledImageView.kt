@@ -45,6 +45,7 @@ class TiledImageView @JvmOverloads constructor(
         private set
     var sourceImageHeight: Int = 0
         private set
+    val imageMatrix: Matrix = Matrix()
     var imageTranslationX: Float
         get() = imageMatrix.values()[Matrix.MTRANS_X]
         set(value) {
@@ -73,7 +74,7 @@ class TiledImageView @JvmOverloads constructor(
             invalidate()
         }
     var scaleType: ScaleType = ScaleType.FIT_INSIDE
-    val imageMatrix: Matrix = Matrix()
+    var viewportRectView: ViewportRectView = ViewportRectView.ITSELF
     var touchBehavior: TouchBehavior? = DefaultTouchBehavior()
     private var imageUri: Uri? = null
     private var tilingHelper: TilingHelper = TilingHelper()
@@ -178,6 +179,11 @@ class TiledImageView @JvmOverloads constructor(
         FIT_INSIDE,
         FIT_HORIZONTAL,
         FIT_VERTICAL
+    }
+
+    enum class ViewportRectView {
+        ITSELF,
+        PARENT_VIEW
     }
 
     /** The behavior of touches on [TiledImageView]. */
@@ -430,23 +436,40 @@ class TiledImageView @JvmOverloads constructor(
         }
 
         private fun getViewportRect(): RectF {
-            val imageScale = this@TiledImageView.imageScale
-            val imageRotation = this@TiledImageView.imageRotation
-            val imageMatrixValues = this@TiledImageView.imageMatrix.values()
+            val (translationX: Float, translationY: Float) = when (viewportRectView) {
+                ViewportRectView.ITSELF -> {
+                    this@TiledImageView.imageMatrix.values().let { it[Matrix.MTRANS_X] to it[Matrix.MTRANS_Y] }
+                }
+                ViewportRectView.PARENT_VIEW -> {
+                    PointF(x, y).let {
+                        it.rotate(PointF(it.x + (width / 2f), it.y + (height / 2f)), rotation)
+                        it.x to it.y
+                    }
+                }
+            }
+            val scale: Float = this@TiledImageView.imageScale
+            val rotation: Float = when (viewportRectView) {
+                ViewportRectView.ITSELF -> imageRotation
+                ViewportRectView.PARENT_VIEW -> rotation
+            }
+            val (viewportRectWidth: Int, viewportRectHeight: Int) = when (viewportRectView) {
+                ViewportRectView.ITSELF -> width to height
+                ViewportRectView.PARENT_VIEW -> (parent as View).width to (parent as View).height
+            }
 
-            val p1 = PointF(-x / imageScale, -y / imageScale)
-            val p2 = PointF((-x + (parent as View).width) / imageScale, p1.y)
-            val p3 = PointF(p1.x, (-y + (parent as View).height) / imageScale)
+            val p1 = PointF(0f, 0f)
+            val p2 = PointF(viewportRectWidth / scale, p1.y)
+            val p3 = PointF(p1.x, viewportRectHeight / scale)
             val p4 = PointF(p2.x, p3.y)
 
-            val (axis: PointF, angle: Float) = PointF(0f, 0f) to -imageRotation
+            val (axis: PointF, angle: Float) = PointF(0f, 0f) to -rotation
             p1.rotate(axis, angle)
             p2.rotate(axis, angle)
             p3.rotate(axis, angle)
             p4.rotate(axis, angle)
 
-            val (dx: Float, dy: Float) = PointF(-(imageMatrixValues[Matrix.MTRANS_X] / imageScale), -(imageMatrixValues[Matrix.MTRANS_Y] / imageScale)).let {
-                it.rotate(PointF(0f, 0f), -imageRotation)
+            val (dx: Float, dy: Float) = PointF(-(translationX / scale), -(translationY / scale)).let {
+                it.rotate(PointF(0f, 0f), -rotation)
                 it.x to it.y
             }
             p1.offset(dx, dy)
