@@ -445,6 +445,13 @@ class TiledImageView @JvmOverloads constructor(
             )
         }
 
+        /**
+         * Get viewport rect.
+         * Note that the viewport rect coordinate system is based on the bitmap coordinate system.
+         *
+         * For instance, there is a bitmap with width=100 and height=100. This bitmap rect will be left=0, top=0, right=100, bottom=100.
+         * If this bitmap is centered on viewport rect with width=200 and height=200, the viewport rect will be left=-50, top=-50, right=150, bottom=150.
+         */
         private fun getViewportRect(): RectF {
             val (translationX: Float, translationY: Float) = when (viewportRectView) {
                 ViewportRectView.ITSELF -> {
@@ -495,6 +502,15 @@ class TiledImageView @JvmOverloads constructor(
             )
         }
 
+        /** Set coordinate rotated by [angle] with [axis]. */
+        private fun PointF.rotate(axis: PointF, angle: Float) {
+            val r = (angle * PI / 180.0).toFloat()
+            val sinR = sin(r)
+            val cosR = cos(r)
+            set(((x - axis.x) * cosR) - ((y - axis.y) * sinR) + axis.x, ((x - axis.x) * sinR) + ((y - axis.y) * cosR) + axis.y)
+        }
+
+        /** @return True if [tile] is overlapped with [viewportRect]. Else false. */
         private fun isTileOverlappedWithViewport(tile: Tile, viewportRect: RectF): Boolean {
             return if (tile.level != curTileLevel) {
                 false
@@ -503,6 +519,7 @@ class TiledImageView @JvmOverloads constructor(
             }
         }
 
+        /** @return Tiles overlapped with [viewportRect]. */
         private fun getTilesOverlappedWithViewport(viewportRect: RectF): List<Tile> {
             return if (curTileLevel == topTileLevel) {
                 emptyList()
@@ -618,17 +635,7 @@ class TiledImageView @JvmOverloads constructor(
         }
     }
 
-    private companion object {
-        /** Set coordinate rotated by [angle] with [axis]. */
-        private fun PointF.rotate(axis: PointF, angle: Float) {
-            val r = (angle * PI / 180.0).toFloat()
-            val sinR = sin(r)
-            val cosR = cos(r)
-            set(((x - axis.x) * cosR) - ((y - axis.y) * sinR) + axis.x, ((x - axis.x) * sinR) + ((y - axis.y) * cosR) + axis.y)
-        }
-
-        private enum class TileState {
-            FREE, DECODING, DECODED
-        }
+    private enum class TileState {
+        FREE, DECODING, DECODED
     }
 }
