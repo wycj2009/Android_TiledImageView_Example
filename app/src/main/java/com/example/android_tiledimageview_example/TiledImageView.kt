@@ -175,6 +175,16 @@ class TiledImageView @JvmOverloads constructor(
         requestLayout()
     }
 
+    fun removeImage() {
+        imageUri = null
+        sourceImageWidth = 0
+        sourceImageHeight = 0
+        imageMatrix.reset()
+        tilingHelper.init()
+        requestLayout()
+        invalidate()
+    }
+
     enum class ScaleType {
         FIT_INSIDE,
         FIT_HORIZONTAL,
