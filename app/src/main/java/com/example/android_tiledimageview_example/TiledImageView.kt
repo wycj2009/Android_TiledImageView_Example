@@ -479,7 +479,8 @@ class TiledImageView @JvmOverloads constructor(
             val p3 = PointF(p1.x, viewportRectHeight / scale)
             val p4 = PointF(p2.x, p3.y)
 
-            val (axis: PointF, angle: Float) = PointF(0f, 0f) to -rotation
+            val axis = PointF(0f, 0f)
+            val angle: Float = -rotation
             p1.rotate(axis, angle)
             p2.rotate(axis, angle)
             p3.rotate(axis, angle)
